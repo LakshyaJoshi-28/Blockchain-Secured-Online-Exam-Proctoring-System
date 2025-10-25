@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Create Exam</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+.container { max-width:900px; margin:40px auto; padding:20px; background:#f7f9fc; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.1); }
+h1 { text-align:center; color:#2c3e50; }
+label { display:block; margin-top:10px; font-weight:bold; }
+input[type=text], input[type=number], select, textarea, input[type=datetime-local] { width:100%; padding:6px 10px; margin-top:4px; border-radius:5px; border:1px solid #ccc; }
+button { margin-top:10px; padding:6px 12px; border:none; border-radius:5px; cursor:pointer; }
+.question-block { background:#fff; padding:12px; margin:12px 0; border-radius:8px; border:1px solid #d1d7e0; position:relative; }
+.delete-btn { position:absolute; top:10px; right:10px; background:#e74c3c; color:#fff; }
+.flash { padding:10px; margin-bottom:12px; border-radius:5px; }
+.flash.success { background:#2ecc71; color:white; }
+.flash.error { background:#e74c3c; color:white; }
+.option-field { margin:4px 0; }
+</style>
+<script>
+let questionCount = 0;  // unique ID
+
+function addQuestion() {
+    questionCount++;
+    const container = document.getElementById('questions-container');
+    const displayNumber = container.children.length + 1;
+
+    const div = document.createElement('div');
+    div.className = 'question-block';
+    div.id = `question${questionCount}`;
+    div.setAttribute('data-number', displayNumber);
+
+    div.innerHTML = `
+        <button type="button" class="delete-btn" onclick="removeQuestion(${questionCount})">Delete</button>
+        <label>Question ${displayNumber} Text:</label>
+        <textarea name="q${questionCount}_text" required></textarea>
+
+        <label>Question Type:</label>
+        <select name="q${questionCount}_type" onchange="showOptions(this, ${questionCount})">
+            <option value="mcq">MCQ</option>
+            <option value="truefalse">True/False</option>
+            <option value="fill">Fill in the Blank</option>
+            <option value="short">Short Answer</option>
+            <option value="brief">Brief Answer</option>
+            <option value="detail">Detail Answer</option>
+        </select>
+
+        <label>Marks:</label>
+        <input type="number" name="q${questionCount}_marks" value="1" min="1">
+
+        <label>Negative Marks:</label>
+        <input type="number" name="q${questionCount}_negative" value="0" min="0">
+
+        <label>Difficulty (optional):</label>
+        <select name="q${questionCount}_difficulty">
+            <option value="">None</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+        </select>
+
+        <div id="options-container${questionCount}"></div>
+    `;
+    container.appendChild(div);
+    document.getElementById('num_questions').value = container.children.length;
+
+    const select = div.querySelector(`select[name=q${questionCount}_type]`);
+    showOptions(select, questionCount);
+}
+
+function removeQuestion(id) {
+    const container = document.getElementById('questions-container');
+    const q = document.getElementById(`question${id}`);
+    if (q) {
+        q.remove();
+        Array.from(container.children).forEach((child, index) => {
+            const lbl = child.querySelector('label');
+            if (lbl) {
+                lbl.innerText = `Question ${index + 1} Text:`;
+                child.setAttribute('data-number', index + 1);
+            }
+        });
+        document.getElementById('num_questions').value = container.children.length;
+    }
+}
+
+function showOptions(select, id) {
+    const type = select.value;
+    const container = document.getElementById(`options-container${id}`);
+    container.innerHTML = '';
+
+    if (type === 'mcq') {
+        let html = '<label>Options:</label>';
+        for (let i = 1; i <= 4; i++) {
+            html += `<div class="option-field">Option ${i}: <input type="text" name="q${id}_option${i}"> Correct? <input type="checkbox" name="q${id}_correct${i}"></div>`;
+        }
+        container.innerHTML = html;
+    } 
+    else if (type === 'truefalse') {
+        container.innerHTML = `
+            <label>Answer:</label>
+            <button type="button" onclick="setTFAnswer(${id}, 'True')">True</button>
+            <button type="button" onclick="setTFAnswer(${id}, 'False')">False</button>
+            <input type="hidden" id="q${id}_truefalse" name="q${id}_truefalse">
+        `;
+    }
+}
+
+function setTFAnswer(id, val) {
+    document.getElementById(`q${id}_truefalse`).value = val;
+}
+</script>
+</head>
+<body>
+<div class="container">
+    <h1>Create New Exam</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        <label>Exam Title:</label>
+        <input type="text" name="title" required>
+
+        <label>Start Time:</label>
+        <input type="datetime-local" name="start_time" required>
+
+        <label>End Time:</label>
+        <input type="datetime-local" name="end_time" required>
+
+        <input type="hidden" name="num_questions" id="num_questions" value="0">
+
+        <div id="questions-container"></div>
+
+        <button type="button" onclick="addQuestion()" style="background:#3498db; color:#fff;">+ Add Question</button>
+        <input type="submit" value="Create Exam" style="background:#2ecc71; color:#fff; margin-left:10px;">
+    </form>
+    </br>  <a href="{{ url_for('home') }}">⬅ Back to Home</a>
+
+</div>
+</body>
+</html>
