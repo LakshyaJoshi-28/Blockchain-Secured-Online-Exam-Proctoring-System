@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Take Exam</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 30px;
+  background: #f9f9f9;
+}
+h1, h2 { color: #333; }
+form {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+.question {
+  margin-bottom: 20px;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: #fafafa;
+}
+button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover { background: #0056b3; }
+#timer {
+  font-size: 18px;
+  color: #c00;
+  font-weight: bold;
+  text-align: right;
+  margin-bottom: 10px;
+}
+.small-note { font-size: 0.9em; color: #555; }
+</style>
+</head>
+<body>
+<h1>{{ exam.title }}</h1>
+<p class="small-note"><b>Duration:</b> {{ exam.duration or 'N/A' }} minutes</p>
+<p class="small-note"><b>Start Time:</b> {{ exam.start_time }}</p>
+<p class="small-note"><b>End Time:</b> {{ exam.end_time }}</p>
+
+<div id="timer">⏳ Time Remaining: --:--</div>
+<hr>
+
+<form id="examForm" method="POST">
+  <ol>
+  {% for q in questions %}
+    <li class="question">
+      <p><b>{{ q.q_text }}</b></p>
+      {% set options = q.options|from_json %}
+      {% if q.q_type == 'mcq' %}
+        {% for opt in options %}
+          <label><input type="radio" name="question_{{ q.id }}" value="{{ opt }}"> {{ opt }}</label><br>
+        {% endfor %}
+      {% elif q.q_type == 'truefalse' %}
+        <label><input type="radio" name="question_{{ q.id }}" value="True"> True</label><br>
+        <label><input type="radio" name="question_{{ q.id }}" value="False"> False</label><br>
+      {% else %}
+        <textarea name="question_{{ q.id }}" rows="2" cols="60" placeholder="Your answer..."></textarea>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ol>
+
+  <button type="submit" id="submitBtn">Submit Exam</button>
+</form>
+
+<script>
+// duration_seconds is provided by server as an integer
+let durationStr = "{{ duration_seconds | default(0) }}";
+let duration = Number(durationStr); // seconds
+const timerElement = document.getElementById('timer');
+const examForm = document.getElementById('examForm');
+const submitBtn = document.getElementById('submitBtn');
+
+function formatTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function updateTimerDisplay(sec) {
+  timerElement.textContent = `⏳ Time Remaining: ${formatTime(sec)}`;
+}
+
+// If duration is zero, show 00:00
+if (duration <= 0) {
+  updateTimerDisplay(0);
+} else {
+  updateTimerDisplay(duration);
+}
+
+let timerInterval = null;
+
+function startTimer() {
+  if (timerInterval) return; // already started
+  timerInterval = setInterval(() => {
+    if (duration <= 0) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+      updateTimerDisplay(0);
+      // auto submit once (disable submit button to avoid double submit)
+      submitBtn.disabled = true;
+      // small timeout to allow UI update
+      setTimeout(() => {
+        try {
+          alert("⏰ Time's up! Your exam will be submitted automatically.");
+        } catch(e) {}
+        examForm.submit();
+      }, 100);
+      return;
+    }
+    duration--;
+    updateTimerDisplay(duration);
+    // optional warning at 5 minutes left (300 seconds)
+    if (duration === 300) {
+      try { alert("⚠️ 5 minutes remaining."); } catch(e) {}
+    }
+  }, 1000);
+}
+
+// stop timer when user submits manually
+examForm.addEventListener('submit', function() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  submitBtn.disabled = true;
+});
+
+// Start the timer immediately when the page loads
+window.addEventListener('load', function() {
+  startTimer();
+});
+
+// Extra protection: warn user if they try to close/refresh while exam in progress
+window.addEventListener('beforeunload', function(e) {
+  // if timer running, show a warning
+  if (timerInterval) {
+    const message = "The exam is in progress — leaving will submit/forfeit your attempt.";
+    e.returnValue = message; // legacy
+    return message;
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ exam.title }} - View Exam</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <h1>Exam: {{ exam.title }}</h1>
+    <p><b>Duration:</b> {{ exam.duration }} minutes</p>
+    <p><b>Start:</b> {{ exam.start_time }} | <b>End:</b> {{ exam.end_time }}</p>
+
+    <h2>Questions</h2>
+    {% if questions %}
+        {% for q in questions %}
+            <div class="question-block">
+                <p><b>Q{{ loop.index }}:</b> {{ q.q_text }}</p>
+                <p><b>Type:</b> {{ q.q_type | capitalize }} | 
+                   <b>Marks:</b> {{ q.marks }} | 
+                   <b>Negative:</b> {{ q.negative }} | 
+                   {% if q.difficulty %}<b>Difficulty:</b> {{ q.difficulty }}{% endif %}</p>
+
+                {% if q.options %}
+                    {% set opts = q.options | safe | from_json %}
+                    <p><b>Options:</b></p>
+                    <ul>
+                        {% for opt in opts %}
+                            <li>{{ opt }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if q.correct %}
+                    {% set corrects = q.correct | safe | from_json %}
+                    <p class="correct-answer"><b>Correct Answer(s):</b> {{ corrects | join(', ') }}</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No questions available for this exam.</p>
+    {% endif %}
+
+    <a href="{{ url_for('home') }}">&#8592; Back to Home</a>
+</div>
+</body>
+</html>

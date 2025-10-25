@@ -1,256 +1,249 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS, cross_origin
-from services.user_service import UserService
-from services.password_reset_service import PasswordResetService
-from models.user import User
-import jwt
-import datetime
-from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash
+from datetime import datetime
+import mysql.connector
+import json
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.secret_key = 'exam_secret_key'
 
-# CORS Configuration
-CORS(app)
+# MySQL Connection
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="66520",  # Replace with your MySQL password
+    database="exam_proctoring_system"
+)
+cursor = db.cursor(dictionary=True)
 
-# JWT Token required decorator
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        
-        if not token:
-            return jsonify({'error': 'Token is missing'}), 401
-        
-        try:
-            if token.startswith('Bearer '):
-                token = token[7:]
-            
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            current_user = UserService.get_user_by_id(data['user_id'])
-            
-            if not current_user:
-                return jsonify({'error': 'Invalid token'}), 401
-                
-        except Exception as e:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        return f(current_user, *args, **kwargs)
-    return decorated
+# Template filter
+@app.template_filter('from_json')
+def from_json_filter(s):
+    try:
+        return json.loads(s)
+    except:
+        return []
 
-# Role-based access control decorator
-def role_required(required_roles):
-    def decorator(f):
-        @wraps(f)
-        def decorated(current_user, *args, **kwargs):
-            if current_user.role not in required_roles:
-                return jsonify({'error': 'Insufficient permissions'}), 403
-            return f(current_user, *args, **kwargs)
-        return decorated
-    return decorator
-
+# Home Page
 @app.route('/')
 def home():
-    return jsonify({
-        'message': 'Blockchain-Secured Online Exam Proctoring System API',
-        'status': 'Server is running',
-        'endpoints': {
-            'register': 'POST /api/register',
-            'login': 'POST /api/login',
-            'profile': 'GET /api/profile',
-            'users': 'GET /api/users (Admin only)',
-            'password_reset': 'POST /api/password/reset-request'
-        }
-    })
+    cursor.execute("SELECT * FROM exams")
+    exams = cursor.fetchall()
+    return render_template('home.html', exams=exams)
 
-# User Registration
-@app.route('/api/register', methods=['POST'])
-@cross_origin()
-def register():
-    """User registration endpoint - ONLY STUDENTS CAN REGISTER"""
-    try:
-        data = request.get_json()
-        
-        required_fields = ['name', 'email', 'password']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-        
-        data['role'] = 'Student'
-        
-        student_required_fields = ['enrollment_number', 'branch', 'computer_code']
-        for field in student_required_fields:
-            if not data.get(field):
-                return jsonify({'error': f'{field.replace("_", " ").title()} is required for student registration'}), 400
-        
-        user = UserService.create_user(data)
-        
-        if user and not hasattr(user, 'error'):
-            token = jwt.encode({
-                'user_id': user.user_id,
-                'email': user.email,
-                'role': user.role,
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-            }, app.config['SECRET_KEY'], algorithm='HS256')
-            
-            return jsonify({
-                'message': 'Student registered successfully',
-                'user': user.to_dict(),
-                'token': token
-            }), 201
-        elif user and hasattr(user, 'error'):
-            return jsonify({'error': user['error']}), 400
-        else:
-            return jsonify({'error': 'Failed to create student account'}), 500
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# Create Exam
+@app.route('/create_exam', methods=['GET', 'POST'])
+def create_exam():
+    if request.method == 'POST':
+        try:
+            title = request.form['title']
+            start_time = request.form['start_time']
+            end_time = request.form['end_time']
 
-# User Login
-@app.route('/api/login', methods=['POST'])
-@cross_origin()
-def login():
-    """User login endpoint"""
-    try:
-        data = request.get_json()
-        
-        if not data or not data.get('email') or not data.get('password'):
-            return jsonify({'error': 'Email and password required'}), 400
-        
-        user = UserService.authenticate_user(data['email'], data['password'])
-        
-        if user:
-            token = jwt.encode({
-                'user_id': user.user_id,
-                'email': user.email,
-                'role': user.role,
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-            }, app.config['SECRET_KEY'], algorithm='HS256')
-            
-            return jsonify({
-                'message': 'Login successful',
-                'user': user.to_dict(),
-                'token': token
-            }), 200
-        else:
-            return jsonify({'error': 'Invalid credentials or inactive account'}), 401
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M")
+            end_dt = datetime.strptime(end_time, "%Y-%m-%dT%H:%M")
 
-# Password Reset Routes - ADD THESE
-@app.route('/api/password/reset-request', methods=['POST', 'OPTIONS'])
-@cross_origin()
-def request_password_reset():
-    """Request password reset OTP"""
-    try:
-        data = request.get_json()
-        
-        if not data or not data.get('email'):
-            return jsonify({'error': 'Email is required'}), 400
-        
-        print(f"📧 Password reset requested for: {data['email']}")
-        
-        result = PasswordResetService.create_reset_token(data['email'])
-        
-        if 'error' in result:
-            return jsonify({'error': result['error']}), 400
-        else:
-            return jsonify(result), 200
-            
-    except Exception as e:
-        print(f"❌ Password reset error: {e}")
-        return jsonify({'error': str(e)}), 500
+            if start_dt >= end_dt:
+                flash("Start time must be before end time.", "error")
+                return redirect(url_for('create_exam'))
 
-@app.route('/api/password/verify-otp', methods=['POST', 'OPTIONS'])
-@cross_origin()
-def verify_reset_otp():
-    """Verify reset OTP"""
-    try:
-        data = request.get_json()
-        
-        if not data or not data.get('email') or not data.get('otp'):
-            return jsonify({'error': 'Email and OTP are required'}), 400
-        
-        is_valid = PasswordResetService.verify_reset_token(data['email'], data['otp'])
-        
-        if is_valid:
-            return jsonify({'success': True, 'message': 'OTP verified successfully'}), 200
-        else:
-            return jsonify({'error': 'Invalid or expired OTP'}), 400
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            duration = int((end_dt - start_dt).total_seconds() / 60)
 
-@app.route('/api/password/reset', methods=['POST', 'OPTIONS'])
-@cross_origin()
-def reset_password():
-    """Reset password after OTP verification"""
-    try:
-        data = request.get_json()
-        
-        if not data or not data.get('email') or not data.get('new_password'):
-            return jsonify({'error': 'Email and new password are required'}), 400
-        
-        # Reset password
-        success = PasswordResetService.reset_password(data['email'], data['new_password'])
-        
-        if success:
-            return jsonify({'success': True, 'message': 'Password reset successfully'}), 200
-        else:
-            return jsonify({'error': 'Failed to reset password'}), 400
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            # Insert exam
+            cursor.execute(
+                "INSERT INTO exams (title, start_time, end_time, duration) VALUES (%s, %s, %s, %s)",
+                (title, start_dt, end_dt, duration)
+            )
+            db.commit()
+            exam_id = cursor.lastrowid
 
-# Existing profile and user management routes
-@app.route('/api/profile', methods=['GET'])
-@cross_origin()
-@token_required
-def get_profile(current_user):
-    """Get user profile"""
-    return jsonify({'user': current_user.to_dict()}), 200
+            # Insert questions
+            for i in range(1, 1000):
+                q_text = request.form.get(f'q{i}_text')
+                if not q_text:
+                    continue
 
-@app.route('/api/users', methods=['GET'])
-@cross_origin()
-@token_required
-@role_required(['Admin'])
-def get_all_users(current_user):
-    """Get all users (Admin only)"""
-    role = request.args.get('role')
-    users = UserService.get_all_users(role)
-    
-    if users is not None:
-        return jsonify({'users': [user.to_dict() for user in users]}), 200
-    else:
-        return jsonify({'error': 'Failed to fetch users'}), 500
+                q_type = request.form.get(f'q{i}_type')
+                q_marks = int(request.form.get(f'q{i}_marks', 1))
+                q_negative = int(request.form.get(f'q{i}_negative', 0))
+                q_difficulty = request.form.get(f'q{i}_difficulty') or None
 
-@app.route('/api/users/<int:user_id>', methods=['PUT'])
-@cross_origin()
-@token_required
-def update_user(current_user, user_id):
-    """Update user profile"""
-    if current_user.role != 'Admin' and current_user.user_id != user_id:
-        return jsonify({'error': 'Insufficient permissions'}), 403
-    
-    try:
-        data = request.get_json()
-        success = UserService.update_user(user_id, data)
-        
-        if success:
-            updated_user = UserService.get_user_by_id(user_id)
-            return jsonify({
-                'message': 'User updated successfully',
-                'user': updated_user.to_dict()
-            }), 200
-        else:
-            return jsonify({'error': 'Failed to update user'}), 400
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+                options = []
+                correct = []
+
+                if q_type == 'mcq':
+                    for j in range(1, 5):
+                        opt = request.form.get(f'q{i}_option{j}')
+                        if opt:
+                            options.append(opt)
+                            if f'q{i}_correct{j}' in request.form:
+                                correct.append(opt)
+                elif q_type == 'truefalse':
+                    ans = request.form.get(f'q{i}_truefalse')
+                    options = ["True", "False"]
+                    correct = [ans] if ans else []
+
+                cursor.execute(
+                    "INSERT INTO questions (exam_id, q_text, q_type, marks, negative, difficulty, options, correct) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (exam_id, q_text, q_type, q_marks, q_negative, q_difficulty,
+                     json.dumps(options), json.dumps(correct))
+                )
+            db.commit()
+            flash("✅ Exam created successfully!", "success")
+            return redirect(url_for('home'))
+        except Exception as e:
+            flash(f"Error creating exam: {e}", "error")
+            return redirect(url_for('create_exam'))
+
+    return render_template('create_exam.html')
+
+
+# Edit Exam
+@app.route('/edit_exam/<int:exam_id>', methods=['GET', 'POST'])
+def edit_exam(exam_id):
+    cursor.execute("SELECT * FROM exams WHERE id=%s", (exam_id,))
+    exam = cursor.fetchone()
+    if not exam:
+        flash("Exam not found.", "error")
+        return redirect(url_for('home'))
+
+    cursor.execute("SELECT * FROM questions WHERE exam_id=%s", (exam_id,))
+    questions = cursor.fetchall()
+
+    if request.method == 'POST':
+        try:
+            title = request.form['title']
+            start_time = request.form['start_time']
+            end_time = request.form['end_time']
+
+            start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M")
+            end_dt = datetime.strptime(end_time, "%Y-%m-%dT%H:%M")
+
+            if start_dt >= end_dt:
+                flash("Start time must be before end time.", "error")
+                return redirect(url_for('edit_exam', exam_id=exam_id))
+
+            duration = int((end_dt - start_dt).total_seconds() / 60)
+
+            # Update exam info
+            cursor.execute(
+                "UPDATE exams SET title=%s, start_time=%s, end_time=%s, duration=%s WHERE id=%s",
+                (title, start_dt, end_dt, duration, exam_id)
+            )
+            db.commit()
+
+            # Update questions
+            for i, q in enumerate(questions, start=1):
+                q_text = request.form.get(f'q{i}_text')
+                if not q_text:
+                    continue
+                q_type = request.form.get(f'q{i}_type')
+                q_marks = int(request.form.get(f'q{i}_marks', 1))
+                q_negative = int(request.form.get(f'q{i}_negative', 0))
+                q_difficulty = request.form.get(f'q{i}_difficulty') or None
+
+                options = []
+                correct = []
+
+                if q_type == 'mcq':
+                    for j in range(1, 5):
+                        opt = request.form.get(f'q{i}_option{j}')
+                        if opt:
+                            options.append(opt)
+                            if f'q{i}_correct{j}' in request.form:
+                                correct.append(opt)
+                elif q_type == 'truefalse':
+                    ans = request.form.get(f'q{i}_truefalse')
+                    options = ["True", "False"]
+                    correct = [ans] if ans else []
+
+                cursor.execute(
+                    "UPDATE questions SET q_text=%s, q_type=%s, marks=%s, negative=%s, difficulty=%s, options=%s, correct=%s WHERE id=%s",
+                    (q_text, q_type, q_marks, q_negative, q_difficulty,
+                     json.dumps(options), json.dumps(correct), q['id'])
+                )
+            db.commit()
+            flash("✅ Exam updated successfully!", "success")
+            return redirect(url_for('home'))
+        except Exception as e:
+            flash(f"Error updating exam: {e}", "error")
+            return redirect(url_for('edit_exam', exam_id=exam_id))
+
+    return render_template('edit_exam.html', exam=exam, questions=questions)
+
+
+# View Exam
+@app.route('/view_exam/<int:exam_id>')
+def view_exam(exam_id):
+    cursor.execute("SELECT * FROM exams WHERE id=%s", (exam_id,))
+    exam = cursor.fetchone()
+    cursor.execute("SELECT * FROM questions WHERE exam_id=%s", (exam_id,))
+    questions = cursor.fetchall()
+    return render_template('view_exam.html', exam=exam, questions=questions)
+
+
+# Instructions Page
+@app.route('/instructions/<int:exam_id>')
+def instructions(exam_id):
+    cursor.execute("SELECT * FROM exams WHERE id=%s", (exam_id,))
+    exam = cursor.fetchone()
+    if not exam:
+        flash("Exam not found.", "error")
+        return redirect(url_for('home'))
+    return render_template('instructions.html', exam=exam)
+
+
+# Take Exam
+@app.route('/take_exam/<int:exam_id>', methods=['GET', 'POST'])
+def take_exam(exam_id):
+    cursor.execute("SELECT * FROM exams WHERE id=%s", (exam_id,))
+    exam = cursor.fetchone()
+    if not exam:
+        flash("Exam not found.", "error")
+        return redirect(url_for('home'))
+
+    cursor.execute("SELECT * FROM questions WHERE exam_id=%s", (exam_id,))
+    questions = cursor.fetchall()
+
+    duration_seconds = (exam.get('duration') or 0) * 60
+
+    if request.method == 'POST':
+        score = 0
+        total = 0
+        results = []
+
+        for q in questions:
+            correct_answers = json.loads(q['correct']) if q.get('correct') else []
+            user_answer = request.form.get(f'question_{q["id"]}')
+            marks = q.get('marks') or 0
+            negative = q.get('negative') or 0
+            total += marks
+
+            if user_answer and user_answer in correct_answers:
+                score += marks
+                result = {"question": q['q_text'], "your_answer": user_answer, "status": "✅ Correct"}
+            elif user_answer:
+                score -= negative
+                result = {"question": q['q_text'], "your_answer": user_answer, "status": "❌ Wrong"}
+            else:
+                result = {"question": q['q_text'], "your_answer": "Not answered", "status": "⚠️ Skipped"}
+            results.append(result)
+
+        flash(f"Exam Submitted! You scored {score} out of {total}.", "success")
+        return render_template('result.html', exam=exam, results=results, score=score, total=total)
+
+    return render_template('take_exam.html', exam=exam, questions=questions, duration_seconds=duration_seconds)
+
+
+# Delete Exam
+@app.route('/delete_exam/<int:exam_id>', methods=['POST'])
+def delete_exam(exam_id):
+    cursor.execute("DELETE FROM exams WHERE id=%s", (exam_id,))
+    cursor.execute("DELETE FROM questions WHERE exam_id=%s", (exam_id,))
+    db.commit()
+    flash("Exam deleted successfully!", "success")
+    return redirect(url_for('home'))
+
 
 if __name__ == '__main__':
-    print("Starting Blockchain-Secured Online Exam Proctoring System...")
-    print("Server running on http://localhost:5000")
-    print("CORS enabled for frontend: http://localhost:8000")
-    app.run(debug=True, port=5000)
+    app.run(debug=True)

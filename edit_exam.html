@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Edit Exam</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+.container { max-width:800px; margin:30px auto; padding:20px; background:#fff; border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.1); }
+h1 { text-align:center; margin-bottom:20px; }
+label { display:block; margin-top:10px; }
+input, select, textarea { width:100%; padding:8px; margin-top:4px; border-radius:5px; border:1px solid #ccc; }
+button { background:#f39c12; color:white; padding:10px 15px; border:none; border-radius:5px; margin-top:15px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Edit Exam</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<form method="POST">
+  <label>Exam Title:</label>
+  <input type="text" name="title" value="{{ exam.title }}" required>
+
+  <label>Start Time:</label>
+  <input type="datetime-local" name="start_time" value="{{ exam.start_time|replace(' ','T') }}" required>
+
+  <label>End Time:</label>
+  <input type="datetime-local" name="end_time" value="{{ exam.end_time|replace(' ','T') }}" required>
+
+  <hr>
+  <h2>Questions</h2>
+
+  {% for q in questions %}
+    {% set i = loop.index %}
+    <div style="border:1px solid #ccc; padding:10px; margin-bottom:10px;">
+      <label>Question {{ i }} Text:</label>
+      <input type="text" name="q{{ i }}_text" value="{{ q.q_text }}" required>
+
+      <label>Type:</label>
+      <select name="q{{ i }}_type">
+        <option value="mcq" {% if q.q_type=='mcq' %}selected{% endif %}>MCQ</option>
+        <option value="truefalse" {% if q.q_type=='truefalse' %}selected{% endif %}>True/False</option>
+        <option value="descriptive" {% if q.q_type=='descriptive' %}selected{% endif %}>Descriptive</option>
+      </select>
+
+      <label>Marks:</label>
+      <input type="number" name="q{{ i }}_marks" value="{{ q.marks }}" required>
+
+      <label>Negative Marks:</label>
+      <input type="number" name="q{{ i }}_negative" value="{{ q.negative }}">
+
+      <label>Difficulty:</label>
+      <input type="text" name="q{{ i }}_difficulty" value="{{ q.difficulty }}">
+
+      {% set options = q.options|from_json %}
+      {% set correct = q.correct|from_json %}
+
+      {% if q.q_type=='mcq' %}
+        {% for j in range(0, options|length) %}
+          <label>Option {{ j+1 }}:</label>
+          <input type="text" name="q{{ i }}_option{{ j+1 }}" value="{{ options[j] }}">
+          <label>Correct?</label>
+          <input type="checkbox" name="q{{ i }}_correct{{ j+1 }}" {% if options[j] in correct %}checked{% endif %}><br>
+        {% endfor %}
+      {% elif q.q_type=='truefalse' %}
+        <label>Answer:</label>
+        <select name="q{{ i }}_truefalse">
+          <option value="True" {% if 'True' in correct %}selected{% endif %}>True</option>
+          <option value="False" {% if 'False' in correct %}selected{% endif %}>False</option>
+        </select>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  <button type="submit">Update Exam</button>
+</form>
+</br>  <a href="{{ url_for('home') }}">⬅ Back to Home</a>
+
+</div>
+</body>
+</html>
